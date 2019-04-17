@@ -7,7 +7,7 @@
       <div class="top-container">
         <div class="logo">
           <img class="img" src="@/assets/logo-hey.png">
-          <h3>Gridea</h3>
+          <h3>{{ AppName }}</h3>
         </div>
         <a-menu mode="inline" :defaultSelectedKeys="['articles']" @click="clickMenu">
           <a-menu-item key="articles">
@@ -64,6 +64,10 @@ import { State, Action } from 'vuex-class'
 import { Site } from '../store/modules/site'
 import * as pkg from '../../package.json'
 
+const capitalize = (str: string): string => {
+  return str.charAt(0).toUpperCase() + str.slice(1)
+}
+
 @Component
 export default class App extends Vue {
   @State('site') site!: any
@@ -72,6 +76,7 @@ export default class App extends Vue {
   ipcRenderer = ipcRenderer
 
   version = (pkg as any).version
+  AppName = capitalize((pkg as any).name)
 
   drawer = true
 
@@ -109,8 +114,8 @@ export default class App extends Vue {
   }
 
   public publish() {
-    const { setting } = this.site
-    if (!setting.branch && !setting.domain && !setting.token && !setting.repository) {
+    const { branch, domain, token, repository } = this.site.setting
+    if (!branch && !domain && !token && !repository) {
       this.$message.error(`🙁  ${this.$t('syncWarning')}`)
       return false
     }
@@ -139,6 +144,7 @@ export default class App extends Vue {
       const latestVersion = res.data.name.substring(1).split('.').map((item: string) => parseInt(item, 10))
       const currentVersion = this.version.split('.').map((item: string) => parseInt(item, 10))
 
+      console.log(latestVersion)
       for (let i = 0; i < currentVersion.length; i += 1) {
         if (currentVersion[i] > latestVersion[i]) {
           this.hasUpdate = false
@@ -149,7 +155,11 @@ export default class App extends Vue {
           break
         }
       }
+      const checkVersion = (latestVersion: Array<string>, currentVersion: Array<string>):boolean => {
+        return true
+      }
 
+      this.hasUpdate = checkVersion(latestVersion, currentVersion)
       if (this.hasUpdate) {
         this.$message.success(`🔥  ${this.$t('newVersionTips')}`, 8)
       }

@@ -1,11 +1,10 @@
 'use strict'
 
 import { app, protocol, BrowserWindow, ipcMain, Menu } from 'electron'
+import { createProtocol } from 'vue-cli-plugin-electron-builder/lib'
 import App from './server/app'
+import packageJson from '../package.json'
 
-import {
-  createProtocol,
-} from 'vue-cli-plugin-electron-builder/lib'
 const isDevelopment = process.env.NODE_ENV !== 'production'
 
 // Keep a global reference of the window object, if you don't, the window will
@@ -25,7 +24,7 @@ function createWindow() {
     // frame: false, // 去除默认窗口栏
     titleBarStyle: 'hidden',
   })
-  win.setTitle('Gridea')
+  win.setTitle(packageJson.name)
 
   if (process.env.WEBPACK_DEV_SERVER_URL) {
     // Load the url of the dev server if in development mode
@@ -68,7 +67,7 @@ function createWindow() {
       submenu: [
         {
           label: 'Learn More',
-          click() { require('electron').shell.openExternal('https://github.com/getgridea/gridea') },
+          click() { require('electron').shell.openExternal(packageJson.repository) },
         },
       ],
     },
