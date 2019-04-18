@@ -8,8 +8,47 @@ import { IPost, IPostDb } from './interfaces/post'
 import ContentHelper from '../helpers/content-helper'
 import matter from 'gray-matter'
 import moment from 'moment'
-import Bluebird from 'bluebird'
-Bluebird.promisifyAll(fs)
+import { deepClone } from '../helpers/utils'
+
+interface IMap {
+  key: string,
+  reg: RegExp,
+  replaceStr: string
+  reverseReg: RegExp
+}
+
+const TITLE_REPLACE_MAP: IMap[] = [
+  {
+    key: '[',
+    reg: /\[/g,
+    replaceStr: 'l-m-l-m',
+    reverseReg: /l-m-l-m/g,
+  },
+  {
+    key: ']',
+    reg: /\]/g,
+    replaceStr: 'r-m-r-m',
+    reverseReg: /r-m-r-m/g,
+  },
+  {
+    key: '{',
+    reg: /\{/g,
+    replaceStr: 'l-l-l-l',
+    reverseReg: /l-l-l-l/g,
+  },
+  {
+    key: '}',
+    reg: /\}/g,
+    replaceStr: 'r-l-r-l',
+    reverseReg: /r-l-r-l/g,
+  },
+  {
+    key: '&',
+    reg: /&/g,
+    replaceStr: 'a-n-d-a-n-d',
+    reverseReg: /a-n-d-a-n-d/g,
+  },
+]
 
 export default class Posts extends Model {
   postDir: string
@@ -21,23 +60,50 @@ export default class Posts extends Model {
     this.postImageDir = `${this.appDir}/post-images`
   }
 
+
+  /**
+   * readdir postDir and make config file for post
+   * - polyfill for tags (tags is string)
+   * - polyfill for gray-matter
+   * - data formate
+   */
   public async savePosts() {
-    const resultList: any = []
-    const requestList: any = []
-    let files = await fse.readdir(this.postDir)
+    const translateBeforeMatter = (str: string) => {
+      // fixed bug #43
+      const titleLineMatch = str.match(/title:.*/)
+      if (titleLineMatch) {
+        const titleLine = titleLineMatch[0]
+        const replaceTitleLine: string = TITLE_REPLACE_MAP.reduce((prev, curr) => {
+          const {reg, replaceStr} = curr
+          return prev.replace(reg, replaceStr)
+        }, titleLine)
+        str = str.replace(titleLine, replaceTitleLine)
+      }
 
-    files = files.filter(junk.not)
-    files.forEach((item) => {
-      requestList.push(fs.readFileSync(path.join(this.postDir, item), 'utf8'))
-    })
-    const results = await Bluebird.all(requestList)
-    const fixedResults = JSON.parse(JSON.stringify(results))
-    /**
-     * The format of the correction `tag` is changed from a string to an array, and the article source file is updated. from v0.7.6
-     */
-    await Promise.all(results.map(async (result: any, index: any) => {
-      const postMatter = matter(result)
-      const data = (postMatter.data as any)
+      // fixed tag is string
+      const tagsMatch = str.match(/tags:.*/)
+      if (tagsMatch) {
+        const tagsStr = tagsMatch[0]
+
+        if (!['[', ']'].some((d: any) => tagsStr.includes(d))) {
+          const tags = tagsStr.replace(/tags:\s*/, '').split(' ')
+          str = str.replace(tagsStr, `tags: ${JSON.stringify(tags)}`)
+        }
+      }
+      return str
+    }
+
+    const translateAfterMatter = (postMatter: any, fileName: string) => {
+      const postMatterClone = deepClone(postMatter)
+      const { data } = postMatterClone
+
+      if (data && data.title) {
+        data.title = data.title.toString()
+        data.title = TITLE_REPLACE_MAP.reduce((prev, curr) => {
+          const {key, reverseReg} = curr
+          return prev.replace(reverseReg, key)
+        }, data.title)
+      }
 
       if (data && data.date) {
         if (typeof data.date === 'string') {
@@ -45,79 +111,49 @@ export default class Posts extends Model {
         } else {
           data.date = moment(data.date).subtract(8, 'hours').format('YYYY-MM-DD HH:mm:ss')
         }
-      }
-
-      // If there is a `tag` and it is of string type, it is corrected to array type.
-      if (data && typeof data.tags === 'string') {
-        const tagReg = /tags: [^\s\[]/i
-        const newTagString = data.tags.split(' ').toString()
-
-        if (tagReg.test(result)) {
-          const mdStr = `---
-title: ${data.title}
-date: ${data.date}
-tags: [${newTagString}]
-published: ${data.published || false}
-hideInList: ${data.hideInList || false}
-feature: ${data.feature || ''}
----
-${postMatter.content}`
-
-          fixedResults[index] = mdStr
-          await fse.writeFileSync(`${this.postDir}/${files[index]}`, mdStr)
-        }
-      }
-    }))
-
-    fixedResults.forEach((result: any, index: any) => {
-      const postMatter = matter(result)
-
-      // Fix matter's formatted `date` problem
-      const data = (postMatter.data as any)
-
-      if (data && data.date) {
-        if (typeof data.date === 'string') {
-          data.date = moment(data.date).format('YYYY-MM-DD HH:mm:ss')
-        } else {
-          data.date = moment(data.date).subtract(8, 'hours').format('YYYY-MM-DD HH:mm:ss')
-        }
-      }
-
-      delete postMatter.orig // Remove orig <Buffer>
-      const post = {
-        ...postMatter,
-        abstract: '',
-        fileName: '',
       }
 
       const moreReg = /\n\s*<!--\s*more\s*-->\s*\n/i
-      const matchMore = moreReg.exec(post.content)
+      const matchMore = moreReg.exec(postMatterClone.content)
       if (matchMore) {
-        post.abstract = (post.content).substring(0, matchMore.index) // Abstract
+        postMatterClone.abstract = (postMatterClone.content).substring(0, matchMore.index) // Abstract
       }
 
-      post.fileName = files[index].substring(0, files[index].length - 3) // To be optimized!
-      resultList.push(post)
-    })
-
-    const list: any = []
-    resultList.forEach((item: any) => {
-      // Articles migrated from hexo or other platforms do not have a `published` field
-      if (item.data.published === undefined) {
-        item.data.published = false
+      if (postMatterClone.data.published === undefined) {
+        postMatterClone.data.published = false
       }
 
       // Articles migrated from other platforms or old articles do not have `hideInList` fields
-      if (item.data.hideInList === undefined) {
-        item.data.hideInList = false
+      if (postMatterClone.data.hideInList === undefined) {
+        postMatterClone.data.hideInList = false
       }
 
-      list.push(item)
-    })
+      delete postMatterClone.orig // Remove orig <Buffer>
 
-    list.sort((a: any, b: any) => moment(b.data.date).unix() - moment(a.data.date).unix())
+      return {
+        abstract: '',
+        ...postMatterClone,
+        fileName,
+      }
+    }
 
-    this.$posts.set('posts', list).write()
+    let files = await fse.readdir(this.postDir)
+    files = files.filter(junk.not)
+
+    const results = await Promise.all(files.map((item) => fs.readFileSync(path.join(this.postDir, item), 'utf8')))
+
+    const resultList: any = await Promise.all(results.map(async (result: any, index: any) => {
+      result = translateBeforeMatter(result)
+
+      const postMatter = matter(result)
+
+      const fileName = files[index].substring(0, files[index].length - 3) // To be optimized!
+      return translateAfterMatter(postMatter, fileName)
+    }))
+
+    resultList.sort((a: any, b: any) => moment(b.data.date).unix() - moment(a.data.date).unix())
+
+    this.$posts.set('posts', resultList).write()
     return true
   }
 
@@ -140,6 +176,7 @@ ${postMatter.content}`
 
     return list
   }
+
 
   /**
    * Save Post to file
