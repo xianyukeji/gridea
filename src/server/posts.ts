@@ -43,10 +43,22 @@ const TITLE_REPLACE_MAP: IMap[] = [
     reverseReg: /r-l-r-l/g,
   },
   {
+    key: ': ',
+    reg: /(?<!^title):\s/g,
+    replaceStr: 'c-o-l-o-n',
+    reverseReg: /c-o-l-o-n/g,
+  },
+  {
     key: '&',
-    reg: /&/g,
+    reg: /(?<=title:\s*)\&/g,
     replaceStr: 'a-n-d-a-n-d',
     reverseReg: /a-n-d-a-n-d/g,
+  },
+  {
+    key: '*',
+    reg: /(?<=title:\s*)\*/g,
+    replaceStr: 's-t-a-r',
+    reverseReg: /s-t-a-r/g,
   },
 ]
 
@@ -145,6 +157,9 @@ export default class Posts extends Model {
     const resultList: any = await Promise.all(results.map(async (result: any, index: any) => {
       result = translateBeforeMatter(result)
 
+      if (!matter.test(result)) {
+        throw new Error('matter error')
+      }
       const postMatter = matter(result)
 
       const fileName = files[index].substring(0, files[index].length - 3) // To be optimized!
