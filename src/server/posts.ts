@@ -17,51 +17,6 @@ interface IMap {
   reverseReg: RegExp
 }
 
-const TITLE_REPLACE_MAP: IMap[] = [
-  {
-    key: '[',
-    reg: /\[/g,
-    replaceStr: 'l-m-l-m',
-    reverseReg: /l-m-l-m/g,
-  },
-  {
-    key: ']',
-    reg: /\]/g,
-    replaceStr: 'r-m-r-m',
-    reverseReg: /r-m-r-m/g,
-  },
-  {
-    key: '{',
-    reg: /\{/g,
-    replaceStr: 'l-l-l-l',
-    reverseReg: /l-l-l-l/g,
-  },
-  {
-    key: '}',
-    reg: /\}/g,
-    replaceStr: 'r-l-r-l',
-    reverseReg: /r-l-r-l/g,
-  },
-  {
-    key: ': ',
-    reg: /(?<!^title):\s/g,
-    replaceStr: 'c-o-l-o-n',
-    reverseReg: /c-o-l-o-n/g,
-  },
-  {
-    key: '&',
-    reg: /(?<=title:\s*)\&/g,
-    replaceStr: 'a-n-d-a-n-d',
-    reverseReg: /a-n-d-a-n-d/g,
-  },
-  {
-    key: '*',
-    reg: /(?<=title:\s*)\*/g,
-    replaceStr: 's-t-a-r',
-    reverseReg: /s-t-a-r/g,
-  },
-]
-
 export default class Posts extends Model {
   postDir: string
   postImageDir: string
@@ -85,11 +40,38 @@ export default class Posts extends Model {
       const titleLineMatch = str.match(/title:.*/)
       if (titleLineMatch) {
         const titleLine = titleLineMatch[0]
-        const replaceTitleLine: string = TITLE_REPLACE_MAP.reduce((prev, curr) => {
-          const {reg, replaceStr} = curr
-          return prev.replace(reg, replaceStr)
-        }, titleLine)
-        str = str.replace(titleLine, replaceTitleLine)
+        const titleLineContentMatch = titleLine.match(/(?<=title:\s*)\S.*/)
+        if (titleLineContentMatch) {
+          const [content] = titleLineContentMatch
+          const [startChar, endChar] = [content.slice(0, 1), content.slice(-1)]
+          const [conditionA, conditionB] = [
+            startChar === `'` && endChar === `'`,
+            startChar === `"` && endChar === `"`,
+          ]
+
+          let replaceContent: string
+
+          if (!conditionA && !conditionB) {
+            replaceContent = `'` + content + `'`
+          } else {
+            // `'let's go'` => `'let''s go'`
+            replaceContent = content.replace(/(?<=\w.[^\'])\'/g, (p, l) => {
+              return content[l + 1] === `'` ? `'` : `''`
+            })
+          }
+
+          const length: number = 20
+          const charArray = new Array(length).fill(0).map((item: any, index: number) => `'`.repeat(index * 2)).reverse()
+          charArray.forEach((char) => {
+            if (replaceContent.startsWith(char)) {
+              replaceContent = replaceContent.replace(new RegExp(`^${char}`), char.slice(-1))
+            }
+            if (replaceContent.endsWith(char)) {
+              replaceContent = replaceContent.replace(new RegExp(`${char}$`), char.slice(-1))
+            }
+          })
+          str = str.replace(titleLine, 'title: ' + replaceContent)
+        }
       }
 
       // fixed tag is string
@@ -111,10 +93,6 @@ export default class Posts extends Model {
 
       if (data && data.title) {
         data.title = data.title.toString()
-        data.title = TITLE_REPLACE_MAP.reduce((prev, curr) => {
-          const {key, reverseReg} = curr
-          return prev.replace(reverseReg, key)
-        }, data.title)
       }
 
       if (data && data.date) {
